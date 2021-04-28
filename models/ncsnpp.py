@@ -15,7 +15,7 @@
 
 # pylint: skip-file
 
-from . import utils, layers, layerspp, normalization
+from models import utils, layers, layerspp, normalization
 import torch.nn as nn
 import functools
 import torch

@@ -45,6 +45,7 @@ def get_default_configs():
   data.centered = False
   data.uniform_dequantization = False
   data.num_channels = 3
+  data.num_workers=20
 
   # model
   config.model = model = ml_collections.ConfigDict()

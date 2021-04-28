@@ -26,7 +26,6 @@ import tensorflow as tf
 import tensorflow_gan as tfgan
 import logging
 # Keep the import below for registering all model definitions
-from models import ddpm, ncsnv2, ncsnpp
 import losses
 import sampling
 from models import utils as mutils
@@ -38,13 +37,15 @@ import sde_lib
 from absl import flags
 import torch
 from torch.utils import tensorboard
+from torch.utils.data import DataLoader
 from torchvision.utils import make_grid, save_image
 from utils import save_checkpoint, restore_checkpoint
+from data.celebahq import CelebAHQTrain,CelebAHQValidation
 
 FLAGS = flags.FLAGS
 
 
-def train(config, workdir):
+def train(config, workdir, basepath):
   """Runs the training pipeline.
 
   Args:
@@ -54,6 +55,7 @@ def train(config, workdir):
   """
 
   # Create directories for experimental logs
+  workdir = os.path.join(basepath,workdir)
   sample_dir = os.path.join(workdir, "samples")
   tf.io.gfile.makedirs(sample_dir)
 
@@ -78,10 +80,19 @@ def train(config, workdir):
   initial_step = int(state['step'])
 
   # Build data iterators
+  def _worker_init_func(worker_id):
+    return np.random.seed(np.random.get_state()[1][0] + worker_id)
   train_ds, eval_ds, _ = datasets.get_dataset(config,
                                               uniform_dequantization=config.data.uniform_dequantization)
-  train_iter = iter(train_ds)  # pytype: disable=wrong-arg-types
-  eval_iter = iter(eval_ds)  # pytype: disable=wrong-arg-types
+  train_ds = CelebAHQTrain(config=config)
+  eval_ds = CelebAHQValidation(config=config)
+  train_loader = DataLoader(train_ds,batch_size=config.training.batch_size,shuffle=True,
+                            num_workers=config.data.num_workers,worker_init_fn=_worker_init_func,drop_last=True)
+  eval_loader = DataLoader(eval_ds, batch_size=config.training.batch_size, shuffle=True,
+                            num_workers=config.data.num_workers, worker_init_fn=_worker_init_func,drop_last=True)
+
+  # train_iter = iter(train_ds)  # pytype: disable=wrong-arg-types
+  # eval_iter = iter(eval_ds)  # pytype: disable=wrong-arg-types
   # Create data normalizer and its inverse
   scaler = datasets.get_data_scaler(config)
   inverse_scaler = datasets.get_data_inverse_scaler(config)
@@ -118,14 +129,27 @@ def train(config, workdir):
     sampling_fn = sampling.get_sampling_fn(config, sde, sampling_shape, inverse_scaler, sampling_eps)
 
   num_train_steps = config.training.n_iters
+  assert initial_step < num_train_steps
+  num_epochs = int(num_train_steps // len(train_loader))
+  start_epoch = int(initial_step // len(train_loader))
 
   # In case there are multiple hosts (e.g., TPU pods), only log to host 0
-  logging.info("Starting training loop at step %d." % (initial_step,))
+  logging.info(f"Starting training loop at step {initial_step}.")
+
+
+
+
+  for epoch in range(start_epoch,num_epochs+1):
+
+    logging.info(f'Start training epoch n')
+
+
+
 
   for step in range(initial_step, num_train_steps + 1):
     # Convert data to JAX arrays and normalize them. Use ._numpy() to avoid copy.
-    batch = torch.from_numpy(next(train_iter)['image']._numpy()).to(config.device).float()
-    batch = batch.permute(0, 3, 1, 2)
+    # batch = torch.from_numpy(next(train_iter)['image']._numpy()).to(config.device).float()
+    # batch = batch.permute(0, 3, 1, 2)
     batch = scaler(batch)
     # Execute one training step
     loss = train_step_fn(state, batch)

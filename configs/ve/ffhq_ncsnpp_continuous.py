@@ -62,6 +62,7 @@ def get_config():
   data.num_channels = 3
   # Plug in your own path to the tfrecords file.
   data.tfrecords_path = '/raid/song/ffhq-dataset/ffhq/ffhq-r10.tfrecords'
+  data.num_workers = 20
 
   # model
   config.model = model = ml_collections.ConfigDict()

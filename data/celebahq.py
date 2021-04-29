@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import albumentations
+import torch
 from torch.utils.data import Dataset
 from PIL import Image
 
@@ -37,14 +38,14 @@ class ImagePaths(Dataset):
         if self.uniform_dequantization:
             image = image.astype(np.float32)
             image = image + np.random.uniform()/256.
-        image = (image/127.5 - 1.0).astype(np.float32)   # in range -1 ... 1
+        image = (image/255.).astype(np.float32)   # in range 0 ... 1
         return image
     def __getitem__(self, i):
         example = dict()
         example["image"] = self.preprocess_image(self.labels["file_path_"][i])
         for k in self.labels:
             example[k] = self.labels[k][i]
-        return example
+        return torch.from_numpy(example)
 
 class NumpyPaths(ImagePaths):
     def preprocess_image(self, image_path):
@@ -53,7 +54,7 @@ class NumpyPaths(ImagePaths):
         image = Image.fromarray(image, mode="RGB")
         image = np.array(image).astype(np.uint8)
         image = self.preprocessor(image=image)["image"]
-        image = (image/127.5 - 1.0).astype(np.float32)
+        image = (image/255.).astype(np.float32)
         return image
 
 class FacesBase(Dataset):

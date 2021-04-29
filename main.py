@@ -21,7 +21,7 @@ from absl import flags
 from ml_collections.config_flags import config_flags
 import logging
 import os
-from os import path
+import torch
 import tensorflow as tf
 
 FLAGS = flags.FLAGS
@@ -34,10 +34,12 @@ flags.DEFINE_string("workdir", None, "Work directory.")
 flags.DEFINE_enum("mode", 'train', ["train", "eval"], "Running mode: train or eval")
 flags.DEFINE_string("eval_folder", "eval",
                     "The folder name for storing evaluation results")
-flags.mark_flags_as_required(["workdir", "config", "mode"])
+flags.DEFINE_integer('gpu',None,'device to train on')
+flags.mark_flags_as_required(["workdir", "config",'gpu'])
 
 
 def main(argv):
+  FLAGS.config.device = torch.device(f'cuda:{FLAGS.gpu}') if torch.cuda.is_available() else torch.device('cpu')
   if FLAGS.mode == "train":
     # Create the working directory
     tf.io.gfile.makedirs(FLAGS.workdir)

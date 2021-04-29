@@ -105,6 +105,6 @@ def get_config():
   optim.grad_clip = 1.
 
   config.seed = 42
-  config.device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+  # config.device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
 
   return config

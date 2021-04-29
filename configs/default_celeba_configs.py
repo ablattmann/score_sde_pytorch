@@ -6,7 +6,7 @@ def get_default_configs():
   config = ml_collections.ConfigDict()
   # training
   config.training = training = ml_collections.ConfigDict()
-  config.training.batch_size = 128
+  config.training.batch_size = 32
   training.n_iters = 1300001
   training.snapshot_freq = 50000
   training.log_freq = 50
@@ -45,7 +45,7 @@ def get_default_configs():
   data.uniform_dequantization = False
   data.centered = False
   data.num_channels = 3
-  data.num_workers = 20
+  data.num_workers = 0
 
   # model
   config.model = model = ml_collections.ConfigDict()

@@ -16,8 +16,8 @@
 # pylint: skip-file
 """Layers for defining NCSN++.
 """
-from . import layers
-from . import up_or_down_sampling
+from models import layers
+from models import up_or_down_sampling
 import torch.nn as nn
 import torch
 import torch.nn.functional as F

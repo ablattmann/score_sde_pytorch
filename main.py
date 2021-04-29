@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """Training and evaluation"""
-
+import silence_tensorflow.auto
 import run_lib
 from absl import app
 from absl import flags
@@ -40,6 +40,8 @@ flags.mark_flags_as_required(["workdir", "config",'gpu'])
 
 def main(argv):
   FLAGS.config.device = torch.device(f'cuda:{FLAGS.gpu}') if torch.cuda.is_available() else torch.device('cpu')
+  torch.cuda.set_device(FLAGS.config.device)
+
   if FLAGS.mode == "train":
     # Create the working directory
     tf.io.gfile.makedirs(FLAGS.workdir)

@@ -19,10 +19,10 @@ import torch
 import torch.nn as nn
 import functools
 
-from .utils import get_sigmas, register_model
-from .layers import (CondRefineBlock, RefineBlock, ResidualBlock, ncsn_conv3x3,
+from models.utils import get_sigmas#, register_model
+from models.layers import (CondRefineBlock, RefineBlock, ResidualBlock, ncsn_conv3x3,
                      ConditionalResidualBlock, get_act)
-from .normalization import get_normalization
+from models.normalization import get_normalization
 
 CondResidualBlock = ConditionalResidualBlock
 conv3x3 = ncsn_conv3x3
@@ -40,7 +40,7 @@ def get_network(config):
       f'No network suitable for {config.data.image_size}px implemented yet.')
 
 
-@register_model(name='ncsnv2_64')
+# @register_model(name='ncsnv2_64')
 class NCSNv2(nn.Module):
   def __init__(self, config):
     super().__init__()
@@ -132,7 +132,7 @@ class NCSNv2(nn.Module):
     return output
 
 
-@register_model(name='ncsn')
+# @register_model(name='ncsn')
 class NCSN(nn.Module):
   def __init__(self, config):
     super().__init__()
@@ -218,7 +218,7 @@ class NCSN(nn.Module):
     return output
 
 
-@register_model(name='ncsnv2_128')
+# @register_model(name='ncsnv2_128')
 class NCSNv2_128(nn.Module):
   """NCSNv2 model architecture for 128px images."""
   def __init__(self, config):
@@ -312,7 +312,7 @@ class NCSNv2_128(nn.Module):
     return output
 
 
-@register_model(name='ncsnv2_256')
+# @register_model(name='ncsnv2_256')
 class NCSNv2_256(nn.Module):
   """NCSNv2 model architecture for 256px images."""
   def __init__(self, config):

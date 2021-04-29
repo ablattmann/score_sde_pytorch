@@ -35,7 +35,7 @@ import evaluation
 import likelihood
 import sde_lib
 from absl import flags
-from tqdm import tqdm_notebook
+from tqdm import tqdm
 import torch
 from torch.utils import tensorboard
 from torch.utils.data import DataLoader
@@ -66,6 +66,9 @@ def train(config, workdir, basepath):
 
   # Initialize model.
   score_model = mutils.create_model(config)
+  logging.info(
+    f"Number of trainable parameters in score model is {sum(p.numel() for p in score_model.parameters())}"
+  )
   ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
   optimizer = losses.get_optimizer(config, score_model.parameters())
   state = dict(optimizer=optimizer, model=score_model, ema=ema, step=0)
@@ -80,23 +83,25 @@ def train(config, workdir, basepath):
   state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
   initial_step = int(state['step'])
 
-  # Build data iterators
-  def _worker_init_func(worker_id):
-    return np.random.seed(np.random.get_state()[1][0] + worker_id)
-  train_ds, eval_ds, _ = datasets.get_dataset(config,
-                                              uniform_dequantization=config.data.uniform_dequantization)
-  train_ds = CelebAHQTrain(config=config)
-  eval_ds = CelebAHQValidation(config=config)
-  train_loader = DataLoader(train_ds,batch_size=config.training.batch_size,shuffle=True,
-                            num_workers=config.data.num_workers,worker_init_fn=_worker_init_func,drop_last=True)
-  eval_loader = DataLoader(eval_ds, batch_size=config.training.batch_size, shuffle=True,
-                            num_workers=config.data.num_workers, worker_init_fn=_worker_init_func,drop_last=True)
-  eval_iter = iter(eval_loader)
+  if config.data.dataset == "CelebAHQ":
+    # Build data iterators
+    def _worker_init_func(worker_id):
+      return np.random.seed(np.random.get_state()[1][0] + worker_id)
 
-  # train_iter = iter(train_ds)  # pytype: disable=wrong-arg-types
-  # eval_iter = iter(eval_ds)  # pytype: disable=wrong-arg-types
+    train_ds = CelebAHQTrain(config=config)
+    eval_ds = CelebAHQValidation(config=config)
+    train_loader = DataLoader(train_ds,batch_size=config.training.batch_size,shuffle=True,
+                              num_workers=config.data.num_workers,worker_init_fn=_worker_init_func,drop_last=True)
+    eval_loader = DataLoader(eval_ds, batch_size=config.training.batch_size, shuffle=True,
+                              num_workers=config.data.num_workers, worker_init_fn=_worker_init_func,drop_last=True)
+    eval_iter = iter(eval_loader)
+  else:
+    train_ds, eval_ds, _ = datasets.get_dataset(config,
+                                                uniform_dequantization=config.data.uniform_dequantization)
+    train_iter = iter(train_ds)  # pytype: disable=wrong-arg-types
+    eval_iter = iter(eval_ds)  # pytype: disable=wrong-arg-types
   # Create data normalizer and its inverse
-  # scaler = datasets.get_data_scaler(config)
+    scaler = datasets.get_data_scaler(config)
   inverse_scaler = datasets.get_data_inverse_scaler(config)
 
   # Setup SDEs
@@ -132,25 +137,27 @@ def train(config, workdir, basepath):
 
   num_train_steps = config.training.n_iters
   assert initial_step < num_train_steps
-  num_epochs = int(num_train_steps // len(train_loader))
-  start_epoch = int(initial_step // len(train_loader))
+  if config.data.dataset == 'CelebAHQ':
+    num_epochs = int(num_train_steps // len(train_loader))
+    start_epoch = int(initial_step // len(train_loader))
 
-  # In case there are multiple hosts (e.g., TPU pods), only log to host 0
-  logging.info(f"Starting training loop at step {initial_step}.")
+    # In case there are multiple hosts (e.g., TPU pods), only log to host 0
+    logging.info(f"Starting training loop at step {initial_step}.")
+    logging.info(f'Training for {num_epochs} epochs.')
 
+    step = initial_step
 
-  step = initial_step
+    for epoch in range(start_epoch,num_epochs):
 
-  for epoch in range(start_epoch,num_epochs):
+        logging.info(f'Start training epoch number {epoch+1}')
 
-      logging.info(f'Start training epoch number {epoch+1}')
-
-      with tqdm_notebook(train_loader,unit='batch') as train_it:
-        for batch in train_it:
-          train_it.set_description(f'Epoch {epoch}')
-
+        pbar = tqdm(train_loader,leave=True)
+        for batch in pbar:
+          pbar.set_description(f'Epoch {epoch}')
+          batch = batch['image'].to(config.device)
           loss = train_step_fn(state, batch)
-          train_it.set_postfix_str(f'loss: {loss}, step: {step}')
+          pbar.set_postfix_str(f'loss: {loss}, step: {step}')
+          pbar.refresh()
           if step % config.training.log_freq == 0:
             # logging.info("step: %d, training_loss: %.5e" % (step, loss.item()))
             writer.add_scalar("training_loss", loss, step)
@@ -159,7 +166,7 @@ def train(config, workdir, basepath):
             save_checkpoint(checkpoint_meta_dir, state)
 
           # Report the loss on an evaluation dataset periodically
-          if step % config.training.eval_freq == 0:
+          if step % config.training.eval_freq == 0 and step > 0:
             # eval_batch = torch.from_numpy(next(eval_iter)['image']._numpy()).to(config.device).float()
             # eval_batch = eval_batch.permute(0, 3, 1, 2)
             # eval_batch = scaler(eval_batch)
@@ -168,6 +175,8 @@ def train(config, workdir, basepath):
             except StopIteration:
                 eval_iter = iter(eval_loader)
                 eval_batch = next(eval_iter)
+
+            eval_batch = eval_batch['image'].to(config.device)
 
             eval_loss = eval_step_fn(state, eval_batch)
             logging.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
@@ -200,55 +209,57 @@ def train(config, workdir, basepath):
 
           step+=1
 
+        pbar.close()
+  else:
 
-  # for step in range(initial_step, num_train_steps + 1):
-  #   # Convert data to JAX arrays and normalize them. Use ._numpy() to avoid copy.
-  #   # batch = torch.from_numpy(next(train_iter)['image']._numpy()).to(config.device).float()
-  #   # batch = batch.permute(0, 3, 1, 2)
-  #   batch = scaler(batch)
-  #   # Execute one training step
-  #   loss = train_step_fn(state, batch)
-  #   if step % config.training.log_freq == 0:
-  #     logging.info("step: %d, training_loss: %.5e" % (step, loss.item()))
-  #     writer.add_scalar("training_loss", loss, step)
-  #
-  #   # Save a temporary checkpoint to resume training after pre-emption periodically
-  #   if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
-  #     save_checkpoint(checkpoint_meta_dir, state)
-  #
-  #   # Report the loss on an evaluation dataset periodically
-  #   if step % config.training.eval_freq == 0:
-  #     eval_batch = torch.from_numpy(next(eval_iter)['image']._numpy()).to(config.device).float()
-  #     eval_batch = eval_batch.permute(0, 3, 1, 2)
-  #     eval_batch = scaler(eval_batch)
-  #     eval_loss = eval_step_fn(state, eval_batch)
-  #     logging.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
-  #     writer.add_scalar("eval_loss", eval_loss.item(), step)
-  #
-  #   # Save a checkpoint periodically and generate samples if needed
-  #   if step != 0 and step % config.training.snapshot_freq == 0 or step == num_train_steps:
-  #     # Save the checkpoint.
-  #     save_step = step // config.training.snapshot_freq
-  #     save_checkpoint(os.path.join(checkpoint_dir, f'checkpoint_{save_step}.pth'), state)
-  #
-  #     # Generate and save samples
-  #     if config.training.snapshot_sampling:
-  #       ema.store(score_model.parameters())
-  #       ema.copy_to(score_model.parameters())
-  #       sample, n = sampling_fn(score_model)
-  #       ema.restore(score_model.parameters())
-  #       this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
-  #       tf.io.gfile.makedirs(this_sample_dir)
-  #       nrow = int(np.sqrt(sample.shape[0]))
-  #       image_grid = make_grid(sample, nrow, padding=2)
-  #       sample = np.clip(sample.permute(0, 2, 3, 1).cpu().numpy() * 255, 0, 255).astype(np.uint8)
-  #       with tf.io.gfile.GFile(
-  #           os.path.join(this_sample_dir, "sample.np"), "wb") as fout:
-  #         np.save(fout, sample)
-  #
-  #       with tf.io.gfile.GFile(
-  #           os.path.join(this_sample_dir, "sample.png"), "wb") as fout:
-  #         save_image(image_grid, fout)
+    for step in range(initial_step, num_train_steps + 1):
+      # Convert data to JAX arrays and normalize them. Use ._numpy() to avoid copy.
+      batch = torch.from_numpy(next(train_iter)['image']._numpy()).to(config.device).float()
+      batch = batch.permute(0, 3, 1, 2)
+      batch = scaler(batch)
+      # Execute one training step
+      loss = train_step_fn(state, batch)
+      if step % config.training.log_freq == 0:
+        logging.info("step: %d, training_loss: %.5e" % (step, loss.item()))
+        writer.add_scalar("training_loss", loss, step)
+
+      # Save a temporary checkpoint to resume training after pre-emption periodically
+      if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
+        save_checkpoint(checkpoint_meta_dir, state)
+
+      # Report the loss on an evaluation dataset periodically
+      if step % config.training.eval_freq == 0:
+        eval_batch = torch.from_numpy(next(eval_iter)['image']._numpy()).to(config.device).float()
+        eval_batch = eval_batch.permute(0, 3, 1, 2)
+        eval_batch = scaler(eval_batch)
+        eval_loss = eval_step_fn(state, eval_batch)
+        logging.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
+        writer.add_scalar("eval_loss", eval_loss.item(), step)
+
+      # Save a checkpoint periodically and generate samples if needed
+      if step != 0 and step % config.training.snapshot_freq == 0 or step == num_train_steps:
+        # Save the checkpoint.
+        save_step = step // config.training.snapshot_freq
+        save_checkpoint(os.path.join(checkpoint_dir, f'checkpoint_{save_step}.pth'), state)
+
+        # Generate and save samples
+        if config.training.snapshot_sampling:
+          ema.store(score_model.parameters())
+          ema.copy_to(score_model.parameters())
+          sample, n = sampling_fn(score_model)
+          ema.restore(score_model.parameters())
+          this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
+          tf.io.gfile.makedirs(this_sample_dir)
+          nrow = int(np.sqrt(sample.shape[0]))
+          image_grid = make_grid(sample, nrow, padding=2)
+          sample = np.clip(sample.permute(0, 2, 3, 1).cpu().numpy() * 255, 0, 255).astype(np.uint8)
+          with tf.io.gfile.GFile(
+              os.path.join(this_sample_dir, "sample.np"), "wb") as fout:
+            np.save(fout, sample)
+
+          with tf.io.gfile.GFile(
+              os.path.join(this_sample_dir, "sample.png"), "wb") as fout:
+            save_image(image_grid, fout)
 
 
 def evaluate(config,

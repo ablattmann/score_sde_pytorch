@@ -45,7 +45,7 @@ class ImagePaths(Dataset):
         example["image"] = self.preprocess_image(self.labels["file_path_"][i])
         for k in self.labels:
             example[k] = self.labels[k][i]
-        return torch.from_numpy(example)
+        return example
 
 class NumpyPaths(ImagePaths):
     def preprocess_image(self, image_path):
@@ -55,6 +55,7 @@ class NumpyPaths(ImagePaths):
         image = np.array(image).astype(np.uint8)
         image = self.preprocessor(image=image)["image"]
         image = (image/255.).astype(np.float32)
+        image = np.moveaxis(image,[0,1,2],[1,2,0])
         return image
 
 class FacesBase(Dataset):

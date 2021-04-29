@@ -21,29 +21,41 @@ import sde_lib
 import numpy as np
 
 
-_MODELS = {}
 
 
-def register_model(cls=None, *, name=None):
-  """A decorator for registering model classes."""
 
-  def _register(cls):
-    if name is None:
-      local_name = cls.__name__
-    else:
-      local_name = name
-    if local_name in _MODELS:
-      raise ValueError(f'Already registered model with name: {local_name}')
-    _MODELS[local_name] = cls
-    return cls
 
-  if cls is None:
-    return _register
-  else:
-    return _register(cls)
+
+# def register_model(cls=None, *, name=None):
+#
+#   """A decorator for registering model classes."""
+#
+#   def _register(cls):
+#     if name is None:
+#       local_name = cls.__name__
+#     else:
+#       local_name = name
+#     if local_name in _MODELS:
+#       raise ValueError(f'Already registered model with name: {local_name}')
+#     _MODELS[local_name] = cls
+#     return cls
+#
+#   if cls is None:
+#     return _register
+#   else:
+#     return _register(cls)
 
 
 def get_model(name):
+  from models.ncsnpp import NCSNpp
+  from models.ddpm import DDPM
+  from models.ncsnv2 import NCSNv2, NCSNv2_128, NCSNv2_256, NCSN
+  _MODELS = {'ncsnv2_64': NCSNv2,
+             'ncsnv2_128': NCSNv2_128,
+             'ncsnv2_256': NCSNv2_256,
+             'ncsn': NCSN,
+             'ddpm': DDPM,
+             'ncsnpp': NCSNpp, }
   return _MODELS[name]
 
 
@@ -126,7 +138,7 @@ def get_model_fn(model, train=False):
   return model_fn
 
 
-def get_score_fn(sde, model, train=False, continuous=False):
+def   get_score_fn(sde, model, train=False, continuous=False):
   """Wraps `score_fn` so that the model output corresponds to a real time-dependent score function.
 
   Args:

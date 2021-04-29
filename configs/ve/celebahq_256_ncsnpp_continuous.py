@@ -23,8 +23,10 @@ def get_config():
   config = get_default_configs()
   # training
   training = config.training
+  training.batch_size = 14
   training.sde = 'vesde'
   training.continuous = True
+  training.snapshot_freq = 25000
 
   # sampling
   sampling = config.sampling

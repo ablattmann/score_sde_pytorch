@@ -23,7 +23,7 @@ import torch
 import torch.nn as nn
 import functools
 
-from . import utils, layers, normalization
+from models import utils, layers, normalization
 
 RefineBlock = layers.RefineBlock
 ResidualBlock = layers.ResidualBlock
@@ -36,7 +36,7 @@ get_normalization = normalization.get_normalization
 default_initializer = layers.default_init
 
 
-@utils.register_model(name='ddpm')
+# @utils.register_model(name='ddpm')
 class DDPM(nn.Module):
   def __init__(self, config):
     super().__init__()

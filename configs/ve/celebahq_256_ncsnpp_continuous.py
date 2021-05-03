@@ -51,7 +51,7 @@ def get_config():
   model.nonlinearity = 'swish'
   model.nf = 128
   model.ch_mult = (1, 1, 2, 2, 2, 2, 2)
-  model.num_res_blocks = 2
+  model.num_res_blocks = 2 #default 2
   model.attn_resolutions = (16,)
   model.resamp_with_conv = True
   model.conditional = True

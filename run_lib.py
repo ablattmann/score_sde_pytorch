@@ -24,7 +24,7 @@ import time
 import numpy as np
 import tensorflow as tf
 import tensorflow_gan as tfgan
-import logging
+import logging.config
 # Keep the import below for registering all model definitions
 import losses
 import sampling
@@ -42,9 +42,23 @@ from torch.utils.data import DataLoader
 from torchvision.utils import make_grid, save_image
 from utils import save_checkpoint, restore_checkpoint
 from data.celebahq import CelebAHQTrain,CelebAHQValidation
+import yaml
+import coloredlogs
 
 FLAGS = flags.FLAGS
 
+iuhihfie_logger_loaded = False
+def get_logger(name):
+    # setup logging
+    global iuhihfie_logger_loaded
+    if not iuhihfie_logger_loaded:
+        with open(f'{os.path.dirname(os.path.abspath(__file__))}/logging.yaml', 'r') as f:
+            log_cfg = yaml.load(f.read(), Loader=yaml.FullLoader)
+            logging.config.dictConfig(log_cfg)
+            iuhihfie_logger_loaded = True
+    logger = logging.getLogger(name)
+    coloredlogs.install(logger=logger, level="DEBUG")
+    return logger
 
 def train(config, workdir, basepath):
   """Runs the training pipeline.
@@ -56,6 +70,11 @@ def train(config, workdir, basepath):
   """
 
   # Create directories for experimental logs
+  logger = get_logger(workdir)
+  logger.info(f'Initialize new run')
+  logger.info('Parameters')
+  for entry in config.items():
+    logger.info(f'{entry}')
   workdir = os.path.join(basepath,workdir)
   sample_dir = os.path.join(workdir, "samples")
   tf.io.gfile.makedirs(sample_dir)
@@ -64,9 +83,11 @@ def train(config, workdir, basepath):
   tf.io.gfile.makedirs(tb_dir)
   writer = tensorboard.SummaryWriter(tb_dir)
 
+
+
   # Initialize model.
   score_model = mutils.create_model(config)
-  logging.info(
+  logger.info(
     f"Number of trainable parameters in score model is {sum(p.numel() for p in score_model.parameters())}"
   )
   ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
@@ -142,14 +163,14 @@ def train(config, workdir, basepath):
     start_epoch = int(initial_step // len(train_loader))
 
     # In case there are multiple hosts (e.g., TPU pods), only log to host 0
-    logging.info(f"Starting training loop at step {initial_step}.")
-    logging.info(f'Training for {num_epochs} epochs.')
+    logger.info(f"Starting training loop at step {initial_step}.")
+    logger.info(f'Training for {num_epochs} epochs.')
 
     step = initial_step
 
     for epoch in range(start_epoch,num_epochs):
 
-        logging.info(f'Start training epoch number {epoch+1}')
+        logger.info(f'Start training epoch number {epoch+1}')
 
         pbar = tqdm(train_loader,leave=True)
         for batch in pbar:
@@ -159,7 +180,7 @@ def train(config, workdir, basepath):
           pbar.set_postfix_str(f'loss: {loss}, step: {step}')
           pbar.refresh()
           if step % config.training.log_freq == 0:
-            # logging.info("step: %d, training_loss: %.5e" % (step, loss.item()))
+            # logger.info("step: %d, training_loss: %.5e" % (step, loss.item()))
             writer.add_scalar("training_loss", loss, step)
 
           if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
@@ -179,7 +200,7 @@ def train(config, workdir, basepath):
             eval_batch = eval_batch['image'].to(config.device)
 
             eval_loss = eval_step_fn(state, eval_batch)
-            logging.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
+            logger.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
             writer.add_scalar("eval_loss", eval_loss.item(), step)
 
           # Save a checkpoint periodically and generate samples if needed
@@ -220,7 +241,7 @@ def train(config, workdir, basepath):
       # Execute one training step
       loss = train_step_fn(state, batch)
       if step % config.training.log_freq == 0:
-        logging.info("step: %d, training_loss: %.5e" % (step, loss.item()))
+        logger.info("step: %d, training_loss: %.5e" % (step, loss.item()))
         writer.add_scalar("training_loss", loss, step)
 
       # Save a temporary checkpoint to resume training after pre-emption periodically
@@ -233,7 +254,7 @@ def train(config, workdir, basepath):
         eval_batch = eval_batch.permute(0, 3, 1, 2)
         eval_batch = scaler(eval_batch)
         eval_loss = eval_step_fn(state, eval_batch)
-        logging.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
+        logger.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
         writer.add_scalar("eval_loss", eval_loss.item(), step)
 
       # Save a checkpoint periodically and generate samples if needed
@@ -264,6 +285,7 @@ def train(config, workdir, basepath):
 
 def evaluate(config,
              workdir,
+             basepath,
              eval_folder="eval"):
   """Evaluate trained models.
 
@@ -274,6 +296,8 @@ def evaluate(config,
       "eval".
   """
   # Create directory to eval_folder
+  logger = get_logger(workdir)
+  workdir = os.path.join(basepath, workdir)
   eval_dir = os.path.join(workdir, eval_folder)
   tf.io.gfile.makedirs(eval_dir)
 
@@ -349,14 +373,14 @@ def evaluate(config,
   inception_model = evaluation.get_inception_model(inceptionv3=inceptionv3)
 
   begin_ckpt = config.eval.begin_ckpt
-  logging.info("begin checkpoint: %d" % (begin_ckpt,))
+  logger.info("begin checkpoint: %d" % (begin_ckpt,))
   for ckpt in range(begin_ckpt, config.eval.end_ckpt + 1):
     # Wait if the target checkpoint doesn't exist yet
     waiting_message_printed = False
     ckpt_filename = os.path.join(checkpoint_dir, "checkpoint_{}.pth".format(ckpt))
     while not tf.io.gfile.exists(ckpt_filename):
       if not waiting_message_printed:
-        logging.warning("Waiting for the arrival of checkpoint_%d" % (ckpt,))
+        logger.warning("Waiting for the arrival of checkpoint_%d" % (ckpt,))
         waiting_message_printed = True
       time.sleep(60)
 
@@ -383,7 +407,7 @@ def evaluate(config,
         eval_loss = eval_step(state, eval_batch)
         all_losses.append(eval_loss.item())
         if (i + 1) % 1000 == 0:
-          logging.info("Finished %dth step loss evaluation" % (i + 1))
+          logger.info("Finished %dth step loss evaluation" % (i + 1))
 
       # Save loss values to disk or Google Cloud Storage
       all_losses = np.asarray(all_losses)
@@ -405,7 +429,7 @@ def evaluate(config,
           bpd = likelihood_fn(score_model, eval_batch)[0]
           bpd = bpd.detach().cpu().numpy().reshape(-1)
           bpds.extend(bpd)
-          logging.info(
+          logger.info(
             "ckpt: %d, repeat: %d, batch: %d, mean bpd: %6f" % (ckpt, repeat, batch_id, np.mean(np.asarray(bpds))))
           bpd_round_id = batch_id + len(ds_bpd) * repeat
           # Save bits/dim to disk or Google Cloud Storage
@@ -420,7 +444,7 @@ def evaluate(config,
     if config.eval.enable_sampling:
       num_sampling_rounds = config.eval.num_samples // config.eval.batch_size + 1
       for r in range(num_sampling_rounds):
-        logging.info("sampling -- ckpt: %d, round: %d" % (ckpt, r))
+        logger.info("sampling -- ckpt: %d, round: %d" % (ckpt, r))
 
         # Directory to save samples. Different for each host to avoid writing conflicts
         this_sample_dir = os.path.join(
@@ -487,7 +511,7 @@ def evaluate(config,
         tf_data_pools, tf_all_pools).numpy()
       del tf_data_pools, tf_all_pools
 
-      logging.info(
+      logger.info(
         "ckpt-%d --- inception_score: %.6e, FID: %.6e, KID: %.6e" % (
           ckpt, inception_score, fid, kid))
 

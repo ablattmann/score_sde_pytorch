@@ -58,7 +58,7 @@ def main(argv):
     run_lib.train(FLAGS.config, FLAGS.workdir,FLAGS.basepath)
   elif FLAGS.mode == "eval":
     # Run the evaluation pipeline
-    run_lib.evaluate(FLAGS.config, FLAGS.workdir, FLAGS.eval_folder)
+    run_lib.evaluate(FLAGS.config, FLAGS.workdir, FLAGS.basepath ,FLAGS.eval_folder)
   else:
     raise ValueError(f"Mode {FLAGS.mode} not recognized.")
 

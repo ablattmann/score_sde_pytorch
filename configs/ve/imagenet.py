@@ -14,51 +14,58 @@
 # limitations under the License.
 
 # Lint as: python3
-"""Config file for reproducing the results of DDPM on bedrooms."""
+"""Training NCSN++ on Church with VE SDE."""
 
 from configs.default_lsun_configs import get_default_configs
 
 
 def get_config():
   config = get_default_configs()
-
   # training
   training = config.training
-  training.sde = 'vpsde'
-  training.continuous = False
-  training.reduce_mean = True
-  training.batch_size = 10
+  training.sde = 'vesde'
+  training.continuous = True
 
   # sampling
   sampling = config.sampling
   sampling.method = 'pc'
-  sampling.predictor = 'ancestral_sampling'
-  sampling.corrector = 'none'
+  sampling.predictor = 'reverse_diffusion'
+  sampling.corrector = 'langevin'
 
   # data
   data = config.data
-  data.dataset = 'CelebAHQ'
-  data.centered = True
-  data.tfrecords_path = '/atlas/u/yangsong/celeba_hq/-r10.tfrecords'
+  data.dataset = 'Imagenet'
   data.image_size = 256
+  data.tfrecords_path = '/home/yangsong/ncsc/ffhq/ffhq-r08.tfrecords'
+  data.random_crop = True
+  data.num_classes = 1000
+
 
   # model
   model = config.model
-  model.name = 'ddpm'
-  model.scale_by_sigma = False
-  model.num_scales = 1000
-  model.ema_rate = 0.9999
+  model.name = 'ncsnpp'
+  model.sigma_max = 348
+  model.scale_by_sigma = True
+  model.ema_rate = 0.999
   model.normalization = 'GroupNorm'
   model.nonlinearity = 'swish'
   model.nf = 128
-  model.ch_mult = (1, 1, 2, 2, 4, 4)
+  model.ch_mult = (1, 1, 2, 2, 2, 2, 2)
   model.num_res_blocks = 2
   model.attn_resolutions = (16,)
   model.resamp_with_conv = True
   model.conditional = True
-
-  # optim
-  optim = config.optim
-  optim.lr = 2e-5
+  model.fir = True
+  model.fir_kernel = [1, 3, 3, 1]
+  model.skip_rescale = True
+  model.resblock_type = 'biggan'
+  model.progressive = 'output_skip'
+  model.progressive_input = 'input_skip'
+  model.progressive_combine = 'sum'
+  model.attention_type = 'ddpm'
+  model.init_scale = 0.
+  model.fourier_scale = 16
+  model.conv_size = 3
+  model.class_conditional=True
 
   return config

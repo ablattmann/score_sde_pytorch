@@ -41,7 +41,8 @@ from torch.utils import tensorboard
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid, save_image
 from utils import save_checkpoint, restore_checkpoint
-from data.celebahq import CelebAHQTrain,CelebAHQValidation
+from data.celebahq import CelebAHQTrain,CelebAHQValidation, FFHQTrain, FFHQValidation
+from data.imagenet import ImageNetTrain, ImageNetValidation
 import yaml
 import coloredlogs
 
@@ -83,8 +84,6 @@ def train(config, workdir, basepath):
   tf.io.gfile.makedirs(tb_dir)
   writer = tensorboard.SummaryWriter(tb_dir)
 
-
-
   # Initialize model.
   score_model = mutils.create_model(config)
   logger.info(
@@ -104,13 +103,23 @@ def train(config, workdir, basepath):
   state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
   initial_step = int(state['step'])
 
-  if config.data.dataset == "CelebAHQ":
+  if config.data.dataset in ['CelebAHQ','FFHQ', 'Imagenet']:
     # Build data iterators
     def _worker_init_func(worker_id):
       return np.random.seed(np.random.get_state()[1][0] + worker_id)
 
-    train_ds = CelebAHQTrain(config=config)
-    eval_ds = CelebAHQValidation(config=config)
+    if config.data.dataset == 'FFHQ':
+      dset_train = FFHQValidation
+      dset_val = FFHQTrain
+    elif config.data.dataset == 'CelebAHQ':
+      dset_train = CelebAHQTrain
+      dset_val = CelebAHQValidation
+    else:
+      dset_train = ImageNetTrain
+      dset_val = ImageNetValidation
+
+    train_ds = dset_train(config=config)
+    eval_ds = dset_val(config=config)
     train_loader = DataLoader(train_ds,batch_size=config.training.batch_size,shuffle=True,
                               num_workers=config.data.num_workers,worker_init_fn=_worker_init_func,drop_last=True)
     eval_loader = DataLoader(eval_ds, batch_size=config.training.batch_size, shuffle=True,
@@ -158,7 +167,7 @@ def train(config, workdir, basepath):
 
   num_train_steps = config.training.n_iters
   assert initial_step < num_train_steps
-  if config.data.dataset == 'CelebAHQ':
+  if config.data.dataset in ['CelebAHQ','FFHQ', 'Imagenet']:
     num_epochs = int(num_train_steps // len(train_loader))
     start_epoch = int(initial_step // len(train_loader))
 
@@ -173,10 +182,14 @@ def train(config, workdir, basepath):
         logger.info(f'Start training epoch number {epoch+1}')
 
         pbar = tqdm(train_loader,leave=True)
-        for batch in pbar:
+        for complete_batch in pbar:
           pbar.set_description(f'Epoch {epoch}')
-          batch = batch['image'].to(config.device)
-          loss = train_step_fn(state, batch)
+          batch = complete_batch['image'].to(config.device)
+          if config.data.dataset == 'Imagenet':
+            cond = complete_batch['class_label'][:,None].to(config.device)
+          else:
+            cond=None
+          loss = train_step_fn(state, batch,cond=cond)
           pbar.set_postfix_str(f'loss: {loss}, step: {step}')
           pbar.refresh()
           if step % config.training.log_freq == 0:
@@ -192,14 +205,18 @@ def train(config, workdir, basepath):
             # eval_batch = eval_batch.permute(0, 3, 1, 2)
             # eval_batch = scaler(eval_batch)
             try:
-                eval_batch = next(eval_iter)
+                complete_eval_batch = next(eval_iter)
             except StopIteration:
                 eval_iter = iter(eval_loader)
-                eval_batch = next(eval_iter)
+                complete_eval_batch = next(eval_iter)
 
-            eval_batch = eval_batch['image'].to(config.device)
+            eval_batch = complete_eval_batch['image'].to(config.device)
+            if config.data.dataset == 'Imagenet':
+              cond = complete_eval_batch['class_label'].to(config.device)
+            else:
+              cond = None
 
-            eval_loss = eval_step_fn(state, eval_batch)
+            eval_loss = eval_step_fn(state, eval_batch,cond=cond)
             logger.info("step: %d, eval_loss: %.5e" % (step, eval_loss.item()))
             writer.add_scalar("eval_loss", eval_loss.item(), step)
 
@@ -213,7 +230,7 @@ def train(config, workdir, basepath):
             if config.training.snapshot_sampling:
               ema.store(score_model.parameters())
               ema.copy_to(score_model.parameters())
-              sample, n = sampling_fn(score_model)
+              sample, n = sampling_fn(score_model,cond)
               ema.restore(score_model.parameters())
               this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
               tf.io.gfile.makedirs(this_sample_dir)

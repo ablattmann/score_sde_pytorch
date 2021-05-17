@@ -1,21 +1,3 @@
-# coding=utf-8
-# Copyright 2020 The Google Research Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-# Lint as: python3
-"""Config file for reproducing the results of DDPM on bedrooms."""
-
 from configs.default_lsun_configs import get_default_configs
 
 
@@ -37,10 +19,11 @@ def get_config():
 
   # data
   data = config.data
-  data.dataset = 'CelebAHQ'
+  data.dataset = 'Imagenet'
   data.centered = True
-  data.tfrecords_path = '/atlas/u/yangsong/celeba_hq/-r10.tfrecords'
   data.image_size = 256
+  data.random_crop=True
+  data.num_classes = 1000
 
   # model
   model = config.model
@@ -56,6 +39,7 @@ def get_config():
   model.attn_resolutions = (16,)
   model.resamp_with_conv = True
   model.conditional = True
+  model.class_conditional=True
 
   # optim
   optim = config.optim

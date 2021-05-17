@@ -51,6 +51,12 @@ class DDPM(nn.Module):
     resamp_with_conv = config.model.resamp_with_conv
     self.num_resolutions = num_resolutions = len(ch_mult)
     self.all_resolutions = all_resolutions = [config.data.image_size // (2 ** i) for i in range(num_resolutions)]
+    self.class_conditional =  hasattr(config.model,'class_conditional') and config.model.class_conditional
+    # self.embed_dim = self.nf * max(ch_mult) * min(self.attn_resolutions)  // 2
+    self.embed_dim = self.nf * max(ch_mult) * 2
+    if self.class_conditional:
+      n_class = config.data.num_classes
+      self.class_emb = nn.Embedding(n_class, self.embed_dim)
 
     AttnBlock = functools.partial(layers.AttnBlock)
     self.conditional = conditional = config.model.conditional
@@ -85,7 +91,11 @@ class DDPM(nn.Module):
         hs_c.append(in_ch)
 
     in_ch = hs_c[-1]
-    modules.append(ResnetBlock(in_ch=in_ch))
+    # if self.class_conditional:
+    #   in_ch_wcl = in_ch + int(in_ch / min(self.attn_resolutions) * 2)
+    # else:
+    #   in_ch_wcl = in_ch * 2
+    modules.append(ResnetBlock(in_ch=in_ch,out_ch=in_ch))
     modules.append(AttnBlock(channels=in_ch))
     modules.append(ResnetBlock(in_ch=in_ch))
 
@@ -107,7 +117,7 @@ class DDPM(nn.Module):
 
     self.scale_by_sigma = config.model.scale_by_sigma
 
-  def forward(self, x, labels):
+  def forward(self, x, labels,cond=None):
     modules = self.all_modules
     m_idx = 0
     if self.conditional:
@@ -145,6 +155,11 @@ class DDPM(nn.Module):
         m_idx += 1
 
     h = hs[-1]
+    if self.class_conditional:
+      class_emb = self.class_emb(cond).squeeze(1)[...,None,None]
+      # class_emb = class_emb.reshape(cond.shape[0],-1,h.shape[2],h.shape[3])
+      # h = torch.cat([h,class_emb],dim=1)
+      h = class_emb[:,:class_emb.shape[1]//2]*h + class_emb[:,class_emb.shape[1]//2:]
     h = modules[m_idx](h, temb)
     m_idx += 1
     h = modules[m_idx](h)

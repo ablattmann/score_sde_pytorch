@@ -50,6 +50,12 @@ class NCSNpp(nn.Module):
     self.num_resolutions = num_resolutions = len(ch_mult)
     self.all_resolutions = all_resolutions = [config.data.image_size // (2 ** i) for i in range(num_resolutions)]
 
+    self.class_conditional = config.model.class_conditional
+    self.embed_dim = max(ch_mult) * min(self.attn_resolutions)
+    if self.class_conditional:
+      # n_class = self.config.data.num_classes
+      self.class_emb = nn.Embedding(1, self.embed_dim)
+
     self.conditional = conditional = config.model.conditional  # noise-conditional
     fir = config.model.fir
     fir_kernel = config.model.fir_kernel
@@ -172,7 +178,11 @@ class NCSNpp(nn.Module):
         hs_c.append(in_ch)
 
     in_ch = hs_c[-1]
-    modules.append(ResnetBlock(in_ch=in_ch))
+    if self.class_conditional:
+      in_ch_wcl = in_ch + int(in_ch / min(self.attn_resolutions))
+    else:
+      in_ch_wcl = in_ch * 2
+    modules.append(ResnetBlock(in_ch=in_ch_wcl, out_ch=in_ch))
     modules.append(AttnBlock(channels=in_ch))
     modules.append(ResnetBlock(in_ch=in_ch))
 
@@ -229,7 +239,7 @@ class NCSNpp(nn.Module):
 
     self.all_modules = nn.ModuleList(modules)
 
-  def forward(self, x, time_cond):
+  def forward(self, x, time_cond, cond=None):
     # timestep/noise_level embedding; only for continuous training
     modules = self.all_modules
     m_idx = 0
